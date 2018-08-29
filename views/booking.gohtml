@@ -1,0 +1,36 @@
+{{ define "yield" }}
+<h1>BeautyBird &lt;3</h1>
+<p>Book an appointment for a treatment in our salon, right here on our website!</p>
+<form method="post" action="/">
+    <div>
+        <label>Your name:</label>
+        <br />
+        <input type="text" name="name" {{ if .Booking.Name }} value="{{ .Booking.Name }}"{{ end }} required/>
+    </div>
+    <div>
+        <label>Your desired treatment:</label>
+        <br />
+        <input type="text" name="treatment" {{ if .Booking.Treatment }} value="{{ .Booking.Treatment }}"{{ end }} required/>
+    </div>
+    <div>
+        <label>Your mobile number (e.g. +31624971134):</label>
+        <br />
+        <input type="tel" name="phone" {{ if .Booking.Phone }} value="{{ .Booking.Phone }}"{{ end }} required/>
+    </div>
+    <div>
+        <label>Date and Time (<small>Please book at least 3 hours in advance.</small>):</label>
+        <br/>
+        <input type="date" name="date" min="{{ .Booking.MinDate }}" required/>
+        <input type="time" name="time" required/>
+    </div>
+    <div>
+        <button type="submit">Book Now!</button>
+    </div>
+</form>
+
+{{ if .Message }}
+<section>
+<strong>{{ .Message }}</strong>
+</section>
+{{ end }}
+{{ end }}

@@ -1,0 +1,541 @@
+<h1 id="sms-appointment-reminders">SMS Appointment Reminders</h1>
+<h3 id="min-build-time">⏱ 30 min build time</h3>
+<h2 id="why-build-sms-appointment-reminders">Why build SMS appointment reminders?</h2>
+<p>Booking appointments online from a website or mobile app is quick and easy. Customers just have to select their desired date and time, enter their personal details and hit a button. The problem however, is that easy-to-book appointments are often just as easy to forget.</p>
+<p>For appointment-based services, no-shows are annoying and costly because of the time and revenue lost waiting for a customer instead of serving them, or another customer. Timely SMS reminders act as a simple and discrete nudges, which can go a long way in the prevention of costly no-shows.</p>
+<h2 id="getting-started">Getting Started</h2>
+<p>In this MessageBird Developer Guide, we’ll show you how to use the MessageBird SMS messaging API to build an SMS appointment reminder application in Go.</p>
+<p>This sample application represents the booking website of a fictitious online beauty salon called <em>BeautyBird</em>. To reduce the growing number of no-shows, BeautyBird now collects appointment bookings through a form on their website and schedules timely SMS reminders to be sent out three hours before the selected date and time.</p>
+<p>To look at the full sample application or run it on your computer, go to the <a href="https://github.com/messagebirdguides/reminders-guide-go">MessageBird Developer Guides GitHub repository</a> and clone it or download the source code as a ZIP archive.</p>
+<h2 id="getting-started-1">Getting started</h2>
+<p>We’ll be building our single-page web application with:</p>
+<ul>
+<li>the latest version of <a href="https://golang.org">Go</a>, and</li>
+<li>the <a href="https://github.com/messagebird/go-rest-api">MessageBird’s REST API package for Go</a></li>
+</ul>
+<h3 id="structure-of-your-application">Structure of your application</h3>
+<p>We’re building a single page application that takes user input from our BeautyBird booking page and schedules an SMS reminder to be sent three hours before the appointment. To do this, we need to do the following:</p>
+<ul>
+<li><strong>Build an appointment booking page</strong>: Our appointment booking page should take in a name, treatment details, a phone number, and a date and time for the booking.</li>
+<li><strong>Check if the phone number provided is valid</strong>: We need to know if the phone number provided works. We’ll use MessageBird’s <a href="https://developers.messagebird.com/docs/lookup">Lookup REST API</a> to check if a phone number is valid.</li>
+<li><strong>Check if the booking time is valid</strong>: We should only accept appointments that are within opening hours, and if they are made at least three hours in advance.</li>
+<li><strong>Finally, schedule an SMS reminder to be sent</strong>: After we’ve verified that all the booking information we’ve received is valid, we schedule an SMS reminder to be sent three hours before the start of the appointment.</li>
+</ul>
+<h3 id="project-setup">Project Setup</h3>
+<p>Create a folder for your application. In this folder, create the following subfolders:</p>
+<ul>
+<li><code>views</code></li>
+<li><code>views/layouts</code></li>
+</ul>
+<p>We’ll use the following packages from the Go standard library to build our application:</p>
+<ul>
+<li><code>net/http</code>: A HTTP package for building our routes and a simple http server.</li>
+<li><code>html/template</code>: A HTML template library for building views.</li>
+<li><code>time</code>: The Go standard library for handling time.</li>
+</ul>
+<p>From the MessageBird Go REST API package, we’ll import the following packages:</p>
+<ul>
+<li><code>github.com/messagebird/go-rest-api</code>: The MessageBird core client package.</li>
+<li><code>github.com/messagebird/go-rest-api/sms</code>: The MessageBird SMS messaging package.</li>
+<li><code>github.com/messagebird/go-rest-api/lookup</code>: The MessageBird phone number lookup package.</li>
+</ul>
+<h3 id="create-your-api-key">Create your API Key 🔑</h3>
+<p>To start making API calls, we need to generate an access key. MessageBird provides keys in <em>live</em> and <em>test</em> modes. For this tutorial you will need to use a live key. Otherwise, you will not be able to test the complete flow. Read more about the difference between test and live API keys <a href="https://support.messagebird.com/hc/en-us/articles/360000670709-What-is-the-difference-between-a-live-key-and-a-test-key-">here</a>.</p>
+<p>Go to the <a href="https://dashboard.messagebird.com/en/user/index">MessageBird Dashboard</a>; if you have already created an API key it will be shown right there. Click on the eye icon to make the access key visible, then select and copy it to your clipboard. If you do not see any key on the dashboard or if you’re unsure whether this key is in <em>live</em> mode, go to the <em>Developers</em> section and open the <a href="https://dashboard.messagebird.com/en/developers/access">API access (REST) tab</a>. Here, you can create new keys and manage your existing ones.</p>
+<p>If you are having any issues creating your API key, please don’t hesitate to contact support at support@messagebird.com.</p>
+<p><strong>Pro-tip:</strong> To keep our demonstration code simple, we will be saving our API key in <code>main.go</code>. However, hardcoding your credentials in the code is a risky practice that should never be used in production applications. A better method, also recommended by the <a href="https://12factor.net/">Twelve-Factor App Definition</a>, is to use environment variables. You can use open source packages such as <a href="https://github.com/joho/godotenv">GoDotEnv</a> to read your API key from a <code>.env</code> file into your Go application. Your <code>.env</code> file should be written as follows:</p>
+<pre class="env"><code>MESSAGEBIRD_API_KEY=YOUR-API-KEY</code></pre>
+<p>To use <a href="https://github.com/joho/godotenv">GoDotEnv</a> in your application, install it by running:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb2-1" data-line-number="1"><span class="ex">go</span> get -u github.com/joho/godotenv</a></code></pre></div>
+<p>Then, import it in your application:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb3-1" data-line-number="1"><span class="kw">import</span> (</a>
+<a class="sourceLine" id="cb3-2" data-line-number="2">  <span class="co">// Other imported packages</span></a>
+<a class="sourceLine" id="cb3-3" data-line-number="3">  <span class="st">&quot;os&quot;</span></a>
+<a class="sourceLine" id="cb3-4" data-line-number="4"></a>
+<a class="sourceLine" id="cb3-5" data-line-number="5">  <span class="st">&quot;github.com/joho/godotenv&quot;</span></a>
+<a class="sourceLine" id="cb3-6" data-line-number="6">)</a>
+<a class="sourceLine" id="cb3-7" data-line-number="7"></a>
+<a class="sourceLine" id="cb3-8" data-line-number="8"><span class="kw">func</span> main(){</a>
+<a class="sourceLine" id="cb3-9" data-line-number="9">  <span class="co">// GoDotEnv loads any &quot;.env&quot; file located in the same directory as main.go</span></a>
+<a class="sourceLine" id="cb3-10" data-line-number="10">  err := godotenv.Load()</a>
+<a class="sourceLine" id="cb3-11" data-line-number="11">  <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb3-12" data-line-number="12">    log.Fatal(<span class="st">&quot;Error loading .env file&quot;</span>)</a>
+<a class="sourceLine" id="cb3-13" data-line-number="13">  }</a>
+<a class="sourceLine" id="cb3-14" data-line-number="14"></a>
+<a class="sourceLine" id="cb3-15" data-line-number="15">  <span class="co">// Store the value for the key &quot;MESSAGEBIRD_API_KEY&quot; in the loaded &#39;.env&#39; file.</span></a>
+<a class="sourceLine" id="cb3-16" data-line-number="16">  apikey := os.Getenv(<span class="st">&quot;MESSAGEBIRD_API_KEY&quot;</span>)</a>
+<a class="sourceLine" id="cb3-17" data-line-number="17"></a>
+<a class="sourceLine" id="cb3-18" data-line-number="18">  <span class="co">// The rest of your application ...</span></a>
+<a class="sourceLine" id="cb3-19" data-line-number="19">}</a></code></pre></div>
+<h2 id="initialize-the-messagebird-client">Initialize the MessageBird Client</h2>
+<p>Install the <a href="https://github.com/messagebird/go-rest-api">MessageBird’s REST API package for Go</a> by running:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb4-1" data-line-number="1"><span class="kw">go</span> get -u github.com/messagebird/<span class="kw">go</span>-rest-api</a></code></pre></div>
+<p>In your project folder, create a <code>main.go</code> file, and write the following code:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb5-1" data-line-number="1"><span class="kw">package</span> main</a>
+<a class="sourceLine" id="cb5-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb5-3" data-line-number="3"><span class="kw">import</span> (</a>
+<a class="sourceLine" id="cb5-4" data-line-number="4">  <span class="st">&quot;github.com/messagebird/go-rest-api&quot;</span></a>
+<a class="sourceLine" id="cb5-5" data-line-number="5">)</a>
+<a class="sourceLine" id="cb5-6" data-line-number="6"></a>
+<a class="sourceLine" id="cb5-7" data-line-number="7"><span class="kw">var</span> client *messagebird.Client</a>
+<a class="sourceLine" id="cb5-8" data-line-number="8"></a>
+<a class="sourceLine" id="cb5-9" data-line-number="9"><span class="kw">func</span> main(){</a>
+<a class="sourceLine" id="cb5-10" data-line-number="10">  client = messagebird.New(&lt;enter-your-apikey&gt;)</a>
+<a class="sourceLine" id="cb5-11" data-line-number="11">}</a></code></pre></div>
+<h2 id="building-an-appointment-booking-page">Building an appointment booking page</h2>
+<p>Our goal here is to set up a page to collect customer details and, most importantly, their phone number so that we can send them an SMS reminder three hours before their appointment.</p>
+<p>First, we’ll set up our templates and routes. Modify <code>main.go</code> to look like the following:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb6-1" data-line-number="1"><span class="kw">package</span> main</a>
+<a class="sourceLine" id="cb6-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb6-3" data-line-number="3"><span class="kw">import</span> (</a>
+<a class="sourceLine" id="cb6-4" data-line-number="4">    <span class="st">&quot;log&quot;</span></a>
+<a class="sourceLine" id="cb6-5" data-line-number="5">    <span class="st">&quot;net/http&quot;</span></a>
+<a class="sourceLine" id="cb6-6" data-line-number="6">    <span class="st">&quot;html/template&quot;</span></a>
+<a class="sourceLine" id="cb6-7" data-line-number="7"></a>
+<a class="sourceLine" id="cb6-8" data-line-number="8">    <span class="st">&quot;github.com/messagebird/go-rest-api&quot;</span></a>
+<a class="sourceLine" id="cb6-9" data-line-number="9">    )</a>
+<a class="sourceLine" id="cb6-10" data-line-number="10"></a>
+<a class="sourceLine" id="cb6-11" data-line-number="11"><span class="kw">var</span> client *messagebird.Client</a>
+<a class="sourceLine" id="cb6-12" data-line-number="12"></a>
+<a class="sourceLine" id="cb6-13" data-line-number="13"><span class="kw">func</span> main(){</a>
+<a class="sourceLine" id="cb6-14" data-line-number="14">    client = messagebird.New(&lt;enter-your-apikey&gt;)</a>
+<a class="sourceLine" id="cb6-15" data-line-number="15"></a>
+<a class="sourceLine" id="cb6-16" data-line-number="16">    <span class="co">// Routes</span></a>
+<a class="sourceLine" id="cb6-17" data-line-number="17">    http.HandleFunc(<span class="st">&quot;/&quot;</span>, bbScheduler)</a>
+<a class="sourceLine" id="cb6-18" data-line-number="18"></a>
+<a class="sourceLine" id="cb6-19" data-line-number="19">    <span class="co">// Serve</span></a>
+<a class="sourceLine" id="cb6-20" data-line-number="20">    port := <span class="st">&quot;:8080&quot;</span></a>
+<a class="sourceLine" id="cb6-21" data-line-number="21">    log.Println(<span class="st">&quot;Serving application on&quot;</span>, port)</a>
+<a class="sourceLine" id="cb6-22" data-line-number="22">    err := http.ListenAndServe(port, <span class="ot">nil</span>)</a>
+<a class="sourceLine" id="cb6-23" data-line-number="23">    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb6-24" data-line-number="24">        log.Println(err)</a>
+<a class="sourceLine" id="cb6-25" data-line-number="25">    }</a>
+<a class="sourceLine" id="cb6-26" data-line-number="26">}</a>
+<a class="sourceLine" id="cb6-27" data-line-number="27"></a>
+<a class="sourceLine" id="cb6-28" data-line-number="28"><span class="kw">func</span> bbScheduler(w http.ResponseWriter, r *http.Request){</a>
+<a class="sourceLine" id="cb6-29" data-line-number="29">    RenderDefaultTemplate(w,<span class="st">&quot;views/booking.gohtml&quot;</span>,<span class="ot">nil</span>)</a>
+<a class="sourceLine" id="cb6-30" data-line-number="30">}</a>
+<a class="sourceLine" id="cb6-31" data-line-number="31"></a>
+<a class="sourceLine" id="cb6-32" data-line-number="32"><span class="kw">func</span> RenderDefaultTemplate(w http.ResponseWriter, thisView <span class="dt">string</span>, data <span class="kw">interface</span>{}) {</a>
+<a class="sourceLine" id="cb6-33" data-line-number="33">    renderthis := []<span class="dt">string</span>{thisView, <span class="st">&quot;views/layouts/default.gohtml&quot;</span>}</a>
+<a class="sourceLine" id="cb6-34" data-line-number="34">    t, err := template.ParseFiles(renderthis...)</a>
+<a class="sourceLine" id="cb6-35" data-line-number="35">    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb6-36" data-line-number="36">        log.Fatal(err)</a>
+<a class="sourceLine" id="cb6-37" data-line-number="37">    }</a>
+<a class="sourceLine" id="cb6-38" data-line-number="38">    err = t.ExecuteTemplate(w, <span class="st">&quot;default&quot;</span>, data)</a>
+<a class="sourceLine" id="cb6-39" data-line-number="39">    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb6-40" data-line-number="40">        log.Fatal(err)</a>
+<a class="sourceLine" id="cb6-41" data-line-number="41">    }</a>
+<a class="sourceLine" id="cb6-42" data-line-number="42">}</a></code></pre></div>
+<p>Here, we’ve set up a route that’s handled by the <code>bbScheduler</code> handler function. We’ve also set up a helper function <code>RenderDefaultTemplate()</code> that parses our <code>default.gohtml</code> template and one other template, and handles possible errors.</p>
+<p>With that done, we’ll set up our <code>default</code> template. Create <code>views/layouts/default.gohtml</code> and write the following code:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode html"><code class="sourceCode html"><a class="sourceLine" id="cb7-1" data-line-number="1">{{ define &quot;default&quot; }}</a>
+<a class="sourceLine" id="cb7-2" data-line-number="2"><span class="dt">&lt;!DOCTYPE </span>html<span class="dt">&gt;</span></a>
+<a class="sourceLine" id="cb7-3" data-line-number="3">  <span class="kw">&lt;head&gt;</span></a>
+<a class="sourceLine" id="cb7-4" data-line-number="4">    <span class="kw">&lt;meta</span><span class="ot"> charset=</span><span class="st">&quot;utf-8&quot;</span><span class="kw">&gt;</span></a>
+<a class="sourceLine" id="cb7-5" data-line-number="5">    <span class="kw">&lt;meta</span><span class="ot"> http-equiv=</span><span class="st">&quot;X-UA-Compatible&quot;</span><span class="ot"> content=</span><span class="st">&quot;IE=edge&quot;</span><span class="kw">&gt;</span></a>
+<a class="sourceLine" id="cb7-6" data-line-number="6">    <span class="kw">&lt;title&gt;</span>MessageBird Verify Example<span class="kw">&lt;/title&gt;</span></a>
+<a class="sourceLine" id="cb7-7" data-line-number="7">    <span class="kw">&lt;meta</span><span class="ot"> name=</span><span class="st">&quot;description&quot;</span><span class="ot"> content=</span><span class="st">&quot;&quot;</span><span class="kw">&gt;</span></a>
+<a class="sourceLine" id="cb7-8" data-line-number="8">    <span class="kw">&lt;meta</span><span class="ot"> name=</span><span class="st">&quot;viewport&quot;</span><span class="ot"> content=</span><span class="st">&quot;width=device-width, initial-scale=1&quot;</span><span class="kw">&gt;</span></a>
+<a class="sourceLine" id="cb7-9" data-line-number="9">  <span class="kw">&lt;/head&gt;</span></a>
+<a class="sourceLine" id="cb7-10" data-line-number="10">  <span class="kw">&lt;body&gt;</span></a>
+<a class="sourceLine" id="cb7-11" data-line-number="11">    <span class="kw">&lt;main&gt;</span></a>
+<a class="sourceLine" id="cb7-12" data-line-number="12">    {{ template &quot;yield&quot; . }}</a>
+<a class="sourceLine" id="cb7-13" data-line-number="13">    <span class="kw">&lt;/main&gt;</span></a>
+<a class="sourceLine" id="cb7-14" data-line-number="14">  <span class="kw">&lt;/body&gt;</span></a>
+<a class="sourceLine" id="cb7-15" data-line-number="15"><span class="kw">&lt;/html&gt;</span></a>
+<a class="sourceLine" id="cb7-16" data-line-number="16">{{ end }}</a></code></pre></div>
+<p>And our <code>booking</code> template. Create <code>views/booking.gohtml</code> and add the following code to it:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode html"><code class="sourceCode html"><a class="sourceLine" id="cb8-1" data-line-number="1">{{ define &quot;yield&quot; }}</a>
+<a class="sourceLine" id="cb8-2" data-line-number="2"><span class="kw">&lt;h1&gt;</span>BeautyBird <span class="dv">&amp;lt;</span>3<span class="kw">&lt;/h1&gt;</span></a>
+<a class="sourceLine" id="cb8-3" data-line-number="3"><span class="kw">&lt;p&gt;</span>Book an appointment for a treatment in our salon, right here on our website!<span class="kw">&lt;/p&gt;</span></a>
+<a class="sourceLine" id="cb8-4" data-line-number="4"><span class="kw">&lt;form</span><span class="ot"> method=</span><span class="st">&quot;post&quot;</span><span class="ot"> action=</span><span class="st">&quot;/&quot;</span><span class="kw">&gt;</span></a>
+<a class="sourceLine" id="cb8-5" data-line-number="5">    <span class="kw">&lt;div&gt;</span></a>
+<a class="sourceLine" id="cb8-6" data-line-number="6">        <span class="kw">&lt;label&gt;</span>Your name:<span class="kw">&lt;/label&gt;</span></a>
+<a class="sourceLine" id="cb8-7" data-line-number="7">        <span class="kw">&lt;br</span> <span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-8" data-line-number="8">        <span class="kw">&lt;input</span><span class="ot"> type=</span><span class="st">&quot;text&quot;</span><span class="ot"> name=</span><span class="st">&quot;name&quot;</span><span class="ot"> required</span><span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-9" data-line-number="9">    <span class="kw">&lt;/div&gt;</span></a>
+<a class="sourceLine" id="cb8-10" data-line-number="10">    <span class="kw">&lt;div&gt;</span></a>
+<a class="sourceLine" id="cb8-11" data-line-number="11">        <span class="kw">&lt;label&gt;</span>Your desired treatment:<span class="kw">&lt;/label&gt;</span></a>
+<a class="sourceLine" id="cb8-12" data-line-number="12">        <span class="kw">&lt;br</span> <span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-13" data-line-number="13">        <span class="kw">&lt;input</span><span class="ot"> type=</span><span class="st">&quot;text&quot;</span><span class="ot"> name=</span><span class="st">&quot;treatment&quot;</span><span class="ot"> required</span><span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-14" data-line-number="14">    <span class="kw">&lt;/div&gt;</span></a>
+<a class="sourceLine" id="cb8-15" data-line-number="15">    <span class="kw">&lt;div&gt;</span></a>
+<a class="sourceLine" id="cb8-16" data-line-number="16">        <span class="kw">&lt;label&gt;</span>Your mobile number (e.g. +31624971134):<span class="kw">&lt;/label&gt;</span></a>
+<a class="sourceLine" id="cb8-17" data-line-number="17">        <span class="kw">&lt;br</span> <span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-18" data-line-number="18">        <span class="kw">&lt;input</span><span class="ot"> type=</span><span class="st">&quot;tel&quot;</span><span class="ot"> name=</span><span class="st">&quot;phone&quot;</span><span class="ot"> required</span><span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-19" data-line-number="19">    <span class="kw">&lt;/div&gt;</span></a>
+<a class="sourceLine" id="cb8-20" data-line-number="20">    <span class="kw">&lt;div&gt;</span></a>
+<a class="sourceLine" id="cb8-21" data-line-number="21">        <span class="kw">&lt;label&gt;</span>Date and Time (<span class="kw">&lt;small&gt;</span>Please book at least 3 hours in advance.<span class="kw">&lt;/small&gt;</span>):<span class="kw">&lt;/label&gt;</span></a>
+<a class="sourceLine" id="cb8-22" data-line-number="22">        <span class="kw">&lt;br/&gt;</span></a>
+<a class="sourceLine" id="cb8-23" data-line-number="23">        <span class="kw">&lt;input</span><span class="ot"> type=</span><span class="st">&quot;date&quot;</span><span class="ot"> name=</span><span class="st">&quot;date&quot;</span><span class="ot"> required</span><span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-24" data-line-number="24">        <span class="kw">&lt;input</span><span class="ot"> type=</span><span class="st">&quot;time&quot;</span><span class="ot"> name=</span><span class="st">&quot;time&quot;</span><span class="ot"> required</span><span class="kw">/&gt;</span></a>
+<a class="sourceLine" id="cb8-25" data-line-number="25">    <span class="kw">&lt;/div&gt;</span></a>
+<a class="sourceLine" id="cb8-26" data-line-number="26">    <span class="kw">&lt;div&gt;</span></a>
+<a class="sourceLine" id="cb8-27" data-line-number="27">        <span class="kw">&lt;button</span><span class="ot"> type=</span><span class="st">&quot;submit&quot;</span><span class="kw">&gt;</span>Book Now!<span class="kw">&lt;/button&gt;</span></a>
+<a class="sourceLine" id="cb8-28" data-line-number="28">    <span class="kw">&lt;/div&gt;</span></a>
+<a class="sourceLine" id="cb8-29" data-line-number="29"><span class="kw">&lt;/form&gt;</span></a>
+<a class="sourceLine" id="cb8-30" data-line-number="30">{{ end }}</a></code></pre></div>
+<p>Done! If you run <code>go run main.go</code> now and navigate to <code>http://localhost:8080</code>, you’ll find your booking appointment page ready to accept new appointments (and immediately forget them; we’ll deal with that in a moment).</p>
+<h2 id="storing-appointments-scheduling-reminders">Storing Appointments &amp; Scheduling Reminders</h2>
+<p>Let’s write some code to pull date from the booking form.</p>
+<p>First, we need to create data structures to contain our appointment information. Just above <code>main()</code>, add the following code:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb9-1" data-line-number="1"><span class="kw">type</span> booking <span class="kw">struct</span> {</a>
+<a class="sourceLine" id="cb9-2" data-line-number="2">    Name        <span class="dt">string</span></a>
+<a class="sourceLine" id="cb9-3" data-line-number="3">    Treatment   <span class="dt">string</span></a>
+<a class="sourceLine" id="cb9-4" data-line-number="4">    Phone       <span class="dt">string</span></a>
+<a class="sourceLine" id="cb9-5" data-line-number="5">    BookingTime *time.Time</a>
+<a class="sourceLine" id="cb9-6" data-line-number="6">    MinDate     <span class="dt">string</span></a>
+<a class="sourceLine" id="cb9-7" data-line-number="7">}</a>
+<a class="sourceLine" id="cb9-8" data-line-number="8"></a>
+<a class="sourceLine" id="cb9-9" data-line-number="9"><span class="kw">type</span> bookingContainer <span class="kw">struct</span> {</a>
+<a class="sourceLine" id="cb9-10" data-line-number="10">    Booking booking</a>
+<a class="sourceLine" id="cb9-11" data-line-number="11">    Message <span class="dt">string</span></a>
+<a class="sourceLine" id="cb9-12" data-line-number="12">}</a></code></pre></div>
+<p>Here, we’re setting up two structs to contain data we’re parsing from the submitted booking form, and the text that we want to pass back into our template to display a state message that tells our customers if their booking was sucecssful. Because (1) we can only pass one data object into a template, and (2) we want to manage our booking data separately from the status message, we’ll set up two separate struct types: <code>booking</code>, and <code>bookingContainer</code>.</p>
+<p><strong>Note</strong>: This guide shows you how to schedule an SMS reminder for a single appointment. In production, you’ll need to save the appointment information in a persistent data store. To keep the guide straightforward, we’ve omitted those instructions.</p>
+<h3 id="parse-the-booking-form">Parse the booking form</h3>
+<p>Let’s get our customer’s booking information out of that form. We’ll add code to <code>bbScheduler()</code> to:</p>
+<ol type="1">
+<li>Parse the submitted form.</li>
+<li>Extract data from the submitted form and add them to a <code>ThisBooking</code> struct.</li>
+<li>Update the view with this new information.</li>
+</ol>
+<p>Modify <code>bbScheduler()</code> to look like the following:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb10-1" data-line-number="1"><span class="kw">func</span> bbScheduler(w http.ResponseWriter, r *http.Request){</a>
+<a class="sourceLine" id="cb10-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb10-3" data-line-number="3">    <span class="kw">if</span> r.Method == <span class="st">&quot;POST&quot;</span> {</a>
+<a class="sourceLine" id="cb10-4" data-line-number="4">        r.ParseForm()</a>
+<a class="sourceLine" id="cb10-5" data-line-number="5"></a>
+<a class="sourceLine" id="cb10-6" data-line-number="6">        ThisBooking := booking{</a>
+<a class="sourceLine" id="cb10-7" data-line-number="7">            Name:        r.FormValue(<span class="st">&quot;name&quot;</span>),</a>
+<a class="sourceLine" id="cb10-8" data-line-number="8">            Treatment:   r.FormValue(<span class="st">&quot;treatment&quot;</span>),</a>
+<a class="sourceLine" id="cb10-9" data-line-number="9">            Phone:       r.FormValue(<span class="st">&quot;phone&quot;</span>),</a>
+<a class="sourceLine" id="cb10-10" data-line-number="10">            BookingTime: bookingTime,</a>
+<a class="sourceLine" id="cb10-11" data-line-number="11">            MinDate:     minDate,</a>
+<a class="sourceLine" id="cb10-12" data-line-number="12">        }</a>
+<a class="sourceLine" id="cb10-13" data-line-number="13">        RenderDefaultTemplate(w,<span class="st">&quot;views/booking.gohtml&quot;</span>,bookingContainer{ThisBooking,<span class="st">&quot;Booking successful!&quot;</span>})</a>
+<a class="sourceLine" id="cb10-14" data-line-number="14">        <span class="kw">return</span></a>
+<a class="sourceLine" id="cb10-15" data-line-number="15">    }</a>
+<a class="sourceLine" id="cb10-16" data-line-number="16"></a>
+<a class="sourceLine" id="cb10-17" data-line-number="17">    RenderDefaultTemplate(w,<span class="st">&quot;views/booking.gohtml&quot;</span>,<span class="ot">nil</span>)</a>
+<a class="sourceLine" id="cb10-18" data-line-number="18">}</a></code></pre></div>
+<p>Here, we’re parsing the form with <code>r.ParseForm()</code> and putting information that we’ve extracted from the booking form into a <code>ThisBooking</code> struct. Then we call <code>RenderDefaultTemplate()</code> again, and pass <code>ThisBooking</code> and a <code>&quot;Booking successful!&quot;</code> message to the template with a <code>bookingContainer{}</code> struct literal.</p>
+<h3 id="working-with-time">Working with <code>time</code></h3>
+<p>Notice that in our <code>booking</code> struct, <code>BookingTime</code> is of type <code>time.Time</code>. This is a data structure that Go uses to work with time values. Using the <code>time</code> package gives us the ability to set and compare time values, features that we’ll need when writing code to check if a booking time is valid. We’ll need to add code to <code>bbScheduler()</code> to:</p>
+<ol type="1">
+<li>Import the <code>time</code> package.</li>
+<li>Define a time locale. If we don’t define a time locale, then the <code>time</code> package will assume that its working with UTC.</li>
+<li>convert the value of <code>r.FormValue(&quot;date&quot;)</code> and <code>r.FormValue(&quot;time&quot;)</code> to a format that is digestable by the <code>time</code> package.</li>
+</ol>
+<p>Modify the <code>import</code> statement in <code>main.go</code> to add the <code>time</code> package:</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb11-1" data-line-number="1"><span class="kw">import</span> (</a>
+<a class="sourceLine" id="cb11-2" data-line-number="2">    <span class="st">&quot;log&quot;</span></a>
+<a class="sourceLine" id="cb11-3" data-line-number="3">    <span class="st">&quot;net/http&quot;</span></a>
+<a class="sourceLine" id="cb11-4" data-line-number="4">    <span class="st">&quot;html/template&quot;</span></a>
+<a class="sourceLine" id="cb11-5" data-line-number="5">    <span class="st">&quot;time&quot;</span></a>
+<a class="sourceLine" id="cb11-6" data-line-number="6"></a>
+<a class="sourceLine" id="cb11-7" data-line-number="7">    <span class="st">&quot;github.com/messagebird/go-rest-api&quot;</span></a>
+<a class="sourceLine" id="cb11-8" data-line-number="8">    )</a></code></pre></div>
+<p>Then, rewrite <code>bbScheduler()</code> so that it looks like this:</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb12-1" data-line-number="1"><span class="kw">func</span> bbScheduler(w http.ResponseWriter, r *http.Request){</a>
+<a class="sourceLine" id="cb12-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb12-3" data-line-number="3">    loc, err = time.LoadLocation(<span class="st">&quot;Europe/Amsterdam&quot;</span>)</a>
+<a class="sourceLine" id="cb12-4" data-line-number="4">    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb12-5" data-line-number="5">        log.Println(err)</a>
+<a class="sourceLine" id="cb12-6" data-line-number="6">    }</a>
+<a class="sourceLine" id="cb12-7" data-line-number="7"></a>
+<a class="sourceLine" id="cb12-8" data-line-number="8">    <span class="kw">if</span> r.Method == <span class="st">&quot;POST&quot;</span> {</a>
+<a class="sourceLine" id="cb12-9" data-line-number="9">        r.ParseForm()</a>
+<a class="sourceLine" id="cb12-10" data-line-number="10"></a>
+<a class="sourceLine" id="cb12-11" data-line-number="11">        bookingTime, err := time.ParseInLocation(<span class="st">&quot;2006-01-02 15:04&quot;</span>, r.FormValue(<span class="st">&quot;date&quot;</span>)+<span class="st">&quot;  &quot;</span>+r.FormValue(<span class="st">&quot;time&quot;</span>), loc)</a>
+<a class="sourceLine" id="cb12-12" data-line-number="12">        <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb12-13" data-line-number="13">            log.Println(err)</a>
+<a class="sourceLine" id="cb12-14" data-line-number="14">        }</a>
+<a class="sourceLine" id="cb12-15" data-line-number="15"></a>
+<a class="sourceLine" id="cb12-16" data-line-number="16">        ThisBooking := booking{</a>
+<a class="sourceLine" id="cb12-17" data-line-number="17">            Name:        r.FormValue(<span class="st">&quot;name&quot;</span>),</a>
+<a class="sourceLine" id="cb12-18" data-line-number="18">            Treatment:   r.FormValue(<span class="st">&quot;treatment&quot;</span>),</a>
+<a class="sourceLine" id="cb12-19" data-line-number="19">            Phone:       r.FormValue(<span class="st">&quot;phone&quot;</span>),</a>
+<a class="sourceLine" id="cb12-20" data-line-number="20">            BookingTime: &amp;bookingTime,</a>
+<a class="sourceLine" id="cb12-21" data-line-number="21">            MinDate:     time.Now().In(loc).Format(<span class="st">&quot;2006-01-02&quot;</span>),</a>
+<a class="sourceLine" id="cb12-22" data-line-number="22">        }</a>
+<a class="sourceLine" id="cb12-23" data-line-number="23">        RenderDefaultTemplate(w,<span class="st">&quot;views/booking.gohtml&quot;</span>,ThisBooking)</a>
+<a class="sourceLine" id="cb12-24" data-line-number="24">        <span class="kw">return</span></a>
+<a class="sourceLine" id="cb12-25" data-line-number="25">    }</a>
+<a class="sourceLine" id="cb12-26" data-line-number="26"></a>
+<a class="sourceLine" id="cb12-27" data-line-number="27">    RenderDefaultTemplate(w,<span class="st">&quot;views/booking.gohtml&quot;</span>,<span class="ot">nil</span>)</a></code></pre></div>
+<p>There are several things happening here, so let’s break it down.</p>
+<h4 id="a.-define-a-time-locale">a. Define a time locale</h4>
+<p>We’re defining a location at the top of <code>bbScheduler()</code> to make sure that we’re working in the correct time locale. Because we don’t expect BeautyBird customers to cross timezones for their appointments, we can hardcode this value here as the <code>loc</code> variable.</p>
+<h4 id="b.-parse-date-and-time-from-form-input">b. Parse date and time from form input</h4>
+<p>To get the the date and time values extracted from our appointment form into a format that the <code>time</code> package understands, we need to tell <code>time</code> to parse those values. In the above code, we call <code>time.ParseInLocation()</code> which takes three parameters: a “layout” string, a “value” string that specifies a specific date and time, and a “location” (which we’ve defined as <code>loc</code>).</p>
+<p>The “layout” string is Go’s way of allowing you to quickly specify in what format the date and time is written in “value”. When we write:</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb13-1" data-line-number="1">time.ParseInLocation(<span class="st">&quot;2006-01-02 15:04&quot;</span>, r.FormValue(<span class="st">&quot;date&quot;</span>)+<span class="st">&quot;  &quot;</span>+r.FormValue(<span class="st">&quot;time&quot;</span>), loc)</a></code></pre></div>
+<p>we’re telling Go to parse <code>r.FormValue(&quot;date&quot;) + &quot; &quot; + r.FormValue(&quot;time&quot;)</code> with the “layout”: <code>&quot;2006-01-02 15:04&quot;</code>.</p>
+<p>This “layout” can be read like this:</p>
+<ul>
+<li><code>2006</code>: tells Go to expect a four digit “year” value.</li>
+<li><code>01</code>: A two digit “month” value.</li>
+<li><code>02</code>: A two digit “day” value.</li>
+<li><code>15</code>: A two digit “hour” value, in a 24-hour format. We can also tell Go to expect an “hour” value in a 12-hour format by writing <code>03</code> instead.</li>
+<li><code>04</code>: A two digit “minute” value.</li>
+<li><code>PM</code>: We’re not using it here yet, but we tell Go to expect a <code>PM</code> or <code>AM</code> value by writing <code>PM</code> (or <code>pm</code> for lowercase).</li>
+</ul>
+<h4 id="c.-set-a-mindate-value">c. Set a MinDate value</h4>
+<p>We’re using <code>&lt;input type=date/&gt;</code> to allow our customers to enter the a date for their booking. To prevent them from selecting a date that’s earlier than today, we can write a <code>min</code> attribute that contains today’s date. In the code above, we get today’s date and assign it to the <code>MinDate</code> field in <code>ThisBooking</code>, which we then pass to the template when we call <code>RenderDefaultTemplate()</code>.</p>
+<p>Once we’ve parsed the values submitted through the booking form, we assign these values to their corresponding struct fields in <code>ThisBooking</code>:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb14-1" data-line-number="1">ThisBooking := booking{</a>
+<a class="sourceLine" id="cb14-2" data-line-number="2">        Name:        r.FormValue(<span class="st">&quot;name&quot;</span>),</a>
+<a class="sourceLine" id="cb14-3" data-line-number="3">        Treatment:   r.FormValue(<span class="st">&quot;treatment&quot;</span>),</a>
+<a class="sourceLine" id="cb14-4" data-line-number="4">        Phone:       r.FormValue(<span class="st">&quot;phone&quot;</span>),</a>
+<a class="sourceLine" id="cb14-5" data-line-number="5">        BookingTime: &amp;bookingTime,</a>
+<a class="sourceLine" id="cb14-6" data-line-number="6">        MinDate:     time.Now().In(loc).Format(<span class="st">&quot;2006-01-02&quot;</span>),</a>
+<a class="sourceLine" id="cb14-7" data-line-number="7">    }</a></code></pre></div>
+<p>For the purposes of this guide, we’ll use <code>ThisBooking</code> once to set up a scheduled SMS reminder, and then forget it once the next booking is received. In production, you’ll want to push each new instance of <code>ThisBooking</code> to a persistent data store to save that information.</p>
+<h2 id="setting-up-templates-to-use-booking-data">Setting up templates to use booking data</h2>
+<p>Now, we can set up our template to use all the data that we’re passing through the <code>RenderDefaultTemplate()</code> call.</p>
+<p>Modify your <code>booking.gohtml</code> file to look like this:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb15-1" data-line-number="1">{{ define <span class="st">&quot;yield&quot;</span> }}</a>
+<a class="sourceLine" id="cb15-2" data-line-number="2">    &lt;h1&gt;BeautyBird &amp;lt;<span class="dv">3</span>&lt;/h1&gt;</a>
+<a class="sourceLine" id="cb15-3" data-line-number="3">    &lt;p&gt;Book an appointment <span class="kw">for</span> a treatment in our salon, right here on our website!&lt;/p&gt;</a>
+<a class="sourceLine" id="cb15-4" data-line-number="4">    &lt;form method=<span class="st">&quot;post&quot;</span> action=<span class="st">&quot;/&quot;</span>&gt;</a>
+<a class="sourceLine" id="cb15-5" data-line-number="5">        &lt;div&gt;</a>
+<a class="sourceLine" id="cb15-6" data-line-number="6">            &lt;label&gt;Your name:&lt;/label&gt;</a>
+<a class="sourceLine" id="cb15-7" data-line-number="7">            &lt;br /&gt;</a>
+<a class="sourceLine" id="cb15-8" data-line-number="8">            &lt;input <span class="kw">type</span>=<span class="st">&quot;text&quot;</span> name=<span class="st">&quot;name&quot;</span> {{ <span class="kw">if</span> .Booking.Name }} value=<span class="st">&quot;{{ .Booking.Name }}&quot;</span>{{ end }} required/&gt;</a>
+<a class="sourceLine" id="cb15-9" data-line-number="9">        &lt;/div&gt;</a>
+<a class="sourceLine" id="cb15-10" data-line-number="10">        &lt;div&gt;</a>
+<a class="sourceLine" id="cb15-11" data-line-number="11">            &lt;label&gt;Your desired treatment:&lt;/label&gt;</a>
+<a class="sourceLine" id="cb15-12" data-line-number="12">            &lt;br /&gt;</a>
+<a class="sourceLine" id="cb15-13" data-line-number="13">            &lt;input <span class="kw">type</span>=<span class="st">&quot;text&quot;</span> name=<span class="st">&quot;treatment&quot;</span> {{ <span class="kw">if</span> .Booking.Treatment }} value=<span class="st">&quot;{{ .Booking.Treatment }}&quot;</span>{{ end }} required/&gt;</a>
+<a class="sourceLine" id="cb15-14" data-line-number="14">        &lt;/div&gt;</a>
+<a class="sourceLine" id="cb15-15" data-line-number="15">        &lt;div&gt;</a>
+<a class="sourceLine" id="cb15-16" data-line-number="16">            &lt;label&gt;Your mobile number (e.g. +<span class="dv">31624971134</span>):&lt;/label&gt;</a>
+<a class="sourceLine" id="cb15-17" data-line-number="17">            &lt;br /&gt;</a>
+<a class="sourceLine" id="cb15-18" data-line-number="18">            &lt;input <span class="kw">type</span>=<span class="st">&quot;tel&quot;</span> name=<span class="st">&quot;phone&quot;</span> {{ <span class="kw">if</span> .Booking.Phone }} value=<span class="st">&quot;{{ .Booking.Phone }}&quot;</span>{{ end }} required/&gt;</a>
+<a class="sourceLine" id="cb15-19" data-line-number="19">        &lt;/div&gt;</a>
+<a class="sourceLine" id="cb15-20" data-line-number="20">        &lt;div&gt;</a>
+<a class="sourceLine" id="cb15-21" data-line-number="21">            &lt;label&gt;Date and Time (&lt;small&gt;Please book at least <span class="dv">3</span> hours in advance.&lt;/small&gt;):&lt;/label&gt;</a>
+<a class="sourceLine" id="cb15-22" data-line-number="22">            &lt;br/&gt;</a>
+<a class="sourceLine" id="cb15-23" data-line-number="23">            &lt;input <span class="kw">type</span>=<span class="st">&quot;date&quot;</span> name=<span class="st">&quot;date&quot;</span> min=<span class="st">&quot;{{ .Booking.MinDate }}&quot;</span> required/&gt;</a>
+<a class="sourceLine" id="cb15-24" data-line-number="24">            &lt;input <span class="kw">type</span>=<span class="st">&quot;time&quot;</span> name=<span class="st">&quot;time&quot;</span> required/&gt;</a>
+<a class="sourceLine" id="cb15-25" data-line-number="25">        &lt;/div&gt;</a>
+<a class="sourceLine" id="cb15-26" data-line-number="26">        &lt;div&gt;</a>
+<a class="sourceLine" id="cb15-27" data-line-number="27">            &lt;button <span class="kw">type</span>=<span class="st">&quot;submit&quot;</span>&gt;Book Now!&lt;/button&gt;</a>
+<a class="sourceLine" id="cb15-28" data-line-number="28">        &lt;/div&gt;</a>
+<a class="sourceLine" id="cb15-29" data-line-number="29">    &lt;/form&gt;</a>
+<a class="sourceLine" id="cb15-30" data-line-number="30"></a>
+<a class="sourceLine" id="cb15-31" data-line-number="31">    {{ <span class="kw">if</span> .Message }}</a>
+<a class="sourceLine" id="cb15-32" data-line-number="32">    &lt;section&gt;</a>
+<a class="sourceLine" id="cb15-33" data-line-number="33">    &lt;strong&gt;{{ .Message }}&lt;/strong&gt;</a>
+<a class="sourceLine" id="cb15-34" data-line-number="34">    &lt;/section&gt;</a>
+<a class="sourceLine" id="cb15-35" data-line-number="35">    {{ end }}</a>
+<a class="sourceLine" id="cb15-36" data-line-number="36">{{ end }}</a></code></pre></div>
+<p>For our “name”, “treatment”, and “phone” fields, we’re adding <code>{{ if .FieldName }}value=&quot;{{ .FieldName }}&quot;{{ end }}</code> blocks to tell our template to display a field value if it’s been defined and available. This allows us to display field values entered for the previous form submissions. This allows us to handle a case where a submission fails — our customer can check and resubmit their booking details without having to re-enter information.</p>
+<p>We’ve also added a <code>min</code> attribute to our <code>&lt;input type=&quot;date&quot;/&gt;</code> line, so that customers cannot select a date before the present date.</p>
+<p>Finally, we’re displaying a status message (if any) at the bottom of the template with an <code>{{ if .Message }}{{ .Message }}{{ end }}</code> block.</p>
+<h2 id="process-form-input">Process form input</h2>
+<p>Now that we’ve got our basic application structure and templates set up, we can start writing code to (1) check if we have enough valid information to schedule an appointment, and (2) schedule an SMS reminder for the appointment.</p>
+<h3 id="checking-appointment-information">Checking appointment information</h3>
+<p>The first check we need to do — that all the form fields are filled in on submission — is already handled by the <code>required</code> attribute we’ve added to all our <code>input</code> fields.</p>
+<p>The other two checks that we need to do are:</p>
+<ul>
+<li>Checking if the entered phone number is valid, and</li>
+<li>Checking if the appointment is set for a valid date and time.</li>
+</ul>
+<h4 id="a.-checking-phone-number-validity">a. Checking phone number validity</h4>
+<p>We can use MessageBird’s Lookup REST API to check if a phone number is valid.</p>
+<p>First, we need to add the MessageBird Lookup package to our <code>import</code> statement:</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb16-1" data-line-number="1"><span class="kw">import</span> (</a>
+<a class="sourceLine" id="cb16-2" data-line-number="2">    <span class="st">&quot;log&quot;</span></a>
+<a class="sourceLine" id="cb16-3" data-line-number="3">    <span class="st">&quot;net/http&quot;</span></a>
+<a class="sourceLine" id="cb16-4" data-line-number="4">    <span class="st">&quot;html/template&quot;</span></a>
+<a class="sourceLine" id="cb16-5" data-line-number="5">    <span class="st">&quot;time&quot;</span></a>
+<a class="sourceLine" id="cb16-6" data-line-number="6"></a>
+<a class="sourceLine" id="cb16-7" data-line-number="7">    <span class="st">&quot;github.com/messagebird/go-rest-api&quot;</span></a>
+<a class="sourceLine" id="cb16-8" data-line-number="8">    <span class="st">&quot;github.com/messagebird/go-rest-api/lookup&quot;</span></a>
+<a class="sourceLine" id="cb16-9" data-line-number="9">    )</a></code></pre></div>
+<p>Then, in <code>bbScheduler()</code>, add this code just under <code>r.ParseForm()</code>:</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb17-1" data-line-number="1">    _, err = lookup.Read(client, r.FormValue(<span class="st">&quot;phone&quot;</span>), &amp;lookup.Params{CountryCode: <span class="st">&quot;NL&quot;</span>})</a>
+<a class="sourceLine" id="cb17-2" data-line-number="2">    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb17-3" data-line-number="3">        RenderDefaultTemplate(w, <span class="st">&quot;views/booking.gohtml&quot;</span>, bookingContainer{ThisBooking, <span class="st">&quot;Please enter a valid phone number.&quot;</span>})</a>
+<a class="sourceLine" id="cb17-4" data-line-number="4">        <span class="kw">return</span></a>
+<a class="sourceLine" id="cb17-5" data-line-number="5">    }</a></code></pre></div>
+<p>Here, we’re calling <code>lookup.Read()</code> and passing in the phone number we’ve gotten through the booking form, and a <code>CountryCode</code> field value that tells MessageBird which locality the phone number should belong to. If MessageBird cannot validate the phone number, <code>lookup.Read()</code> returns an error, which we catch in the following <code>if err != nil { ... }</code> block. We’re discarding the resulting <code>lookup</code> object by assigning it to <code>_</code> because we don’t need it in our application.</p>
+<p><strong>Note</strong>: To send a message to a phone number, you must have added that phone number to your MessageBird contact list. For more information on how to add a new phone number to your contact list, see the <a href="https://developers.messagebird.com/docs/contacts#create-a-contact">MessageBird API Reference</a>.</p>
+<h4 id="b.-checking-appointment-date-and-time">b. Checking appointment date and time</h4>
+<p>Next, we need to add code that checks if the date and time of the booking meets the following criteria:</p>
+<ul>
+<li><strong>Not before “now”</strong>: We’re preventing customers from selecting a date before today in our <code>booking.gohtml</code> template, but we also need to check if the time of the appointment is before the current time. We can’t do this check in the template because date and time input values are checked separately. For example, adding a <code>min=&quot;15:00&quot;</code> attribute value to <code>&lt;input type=&quot;time&quot;/&gt;</code> would stop customers from booking appointments before 3 PM on any day, instead of just the current day. Instead, we’ll check the date and time together in <code>bbScheduler()</code> when the form is submitted.</li>
+<li><strong>Within opening hours</strong>: We don’t want our customers to be able to book an appointment after hours, so we’ll only allow bookings between 9 AM and 6 PM. If a customer tries to book an appointment after hours, we’ll display a message asking them to book their appointment within opening hours.</li>
+<li><strong>There is at least 3 hours between the current time and the set appointment</strong>: We want at least 3 hours of advanced notice for each appointment, so that the staff at BeautyBird have the time to prepare for it (and so our application can send that SMS reminder).</li>
+</ul>
+<p>We’ll write a helper function <code>checkTime()</code> to perform these checks. Add this code just under <code>main()</code>:</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb18-1" data-line-number="1"><span class="kw">func</span> checkTime(w http.ResponseWriter, bookingTime time.Time, reminderDiff time.Duration, loc *time.Location) <span class="dt">string</span> {</a>
+<a class="sourceLine" id="cb18-2" data-line-number="2">    bookingYear := bookingTime.Year()</a>
+<a class="sourceLine" id="cb18-3" data-line-number="3">    bookingMonth := bookingTime.Month()</a>
+<a class="sourceLine" id="cb18-4" data-line-number="4">    bookingDay := bookingTime.Day()</a>
+<a class="sourceLine" id="cb18-5" data-line-number="5"></a>
+<a class="sourceLine" id="cb18-6" data-line-number="6">    openingTime := time.Date(bookingYear, bookingMonth, bookingDay, <span class="dv">9</span>, <span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">0</span>, loc)</a>
+<a class="sourceLine" id="cb18-7" data-line-number="7">    closingTime := time.Date(bookingYear, bookingMonth, bookingDay, <span class="dv">18</span>, <span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">0</span>, loc)</a>
+<a class="sourceLine" id="cb18-8" data-line-number="8"></a>
+<a class="sourceLine" id="cb18-9" data-line-number="9">    now := time.Now().In(loc)</a>
+<a class="sourceLine" id="cb18-10" data-line-number="10"></a>
+<a class="sourceLine" id="cb18-11" data-line-number="11">    timeBeforeBooking := bookingTime.Sub(now)</a>
+<a class="sourceLine" id="cb18-12" data-line-number="12"></a>
+<a class="sourceLine" id="cb18-13" data-line-number="13">    <span class="kw">switch</span> {</a>
+<a class="sourceLine" id="cb18-14" data-line-number="14">    <span class="kw">case</span> bookingTime.Before(now):</a>
+<a class="sourceLine" id="cb18-15" data-line-number="15">        <span class="kw">return</span> <span class="st">&quot;Cannot make a booking before now. Please try again!&quot;</span></a>
+<a class="sourceLine" id="cb18-16" data-line-number="16">    <span class="kw">case</span> bookingTime.Before(openingTime):</a>
+<a class="sourceLine" id="cb18-17" data-line-number="17">        <span class="kw">return</span> <span class="st">&quot;We&#39;re not open yet! Please book your appointment between &quot;</span> + openingTime.Format(<span class="st">&quot;03:04 PM&quot;</span>) + <span class="st">&quot; and &quot;</span> + closingTime.Format(<span class="st">&quot;03:04 PM&quot;</span>) + <span class="st">&quot;.&quot;</span></a>
+<a class="sourceLine" id="cb18-18" data-line-number="18">    <span class="kw">case</span> bookingTime.After(closingTime):</a>
+<a class="sourceLine" id="cb18-19" data-line-number="19">        <span class="kw">return</span> <span class="st">&quot;We&#39;re closed! Please book your appointment between &quot;</span> + openingTime.Format(<span class="st">&quot;03:04 PM&quot;</span>) + <span class="st">&quot; and &quot;</span> + closingTime.Format(<span class="st">&quot;03:04 PM&quot;</span>) + <span class="st">&quot;.&quot;</span></a>
+<a class="sourceLine" id="cb18-20" data-line-number="20">    <span class="kw">case</span> timeBeforeBooking &lt; reminderDiff:</a>
+<a class="sourceLine" id="cb18-21" data-line-number="21">        <span class="kw">return</span> <span class="st">&quot;Please book an appointment &quot;</span> + strings.Split(reminderDiff.String(), <span class="st">&quot;h&quot;</span>)[<span class="dv">0</span>] + <span class="st">&quot; hours in advance.&quot;</span></a>
+<a class="sourceLine" id="cb18-22" data-line-number="22">    <span class="kw">default</span>:</a>
+<a class="sourceLine" id="cb18-23" data-line-number="23">        <span class="kw">return</span> <span class="st">&quot;Success!&quot;</span></a>
+<a class="sourceLine" id="cb18-24" data-line-number="24">    }</a>
+<a class="sourceLine" id="cb18-25" data-line-number="25">}</a></code></pre></div>
+<p>Then, in <code>bbScheduler()</code>, add the following lines of code after <code>ThisBooking := booking{ ... }</code>:</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb19-1" data-line-number="1"><span class="kw">var</span> reminderDiff time.Duration</a>
+<a class="sourceLine" id="cb19-2" data-line-number="2"></a>
+<a class="sourceLine" id="cb19-3" data-line-number="3">reminderDiff, err = time.ParseDuration(<span class="st">&quot;3h&quot;</span>)</a>
+<a class="sourceLine" id="cb19-4" data-line-number="4"><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb19-5" data-line-number="5">    log.Println(err)</a>
+<a class="sourceLine" id="cb19-6" data-line-number="6">}</a>
+<a class="sourceLine" id="cb19-7" data-line-number="7"></a>
+<a class="sourceLine" id="cb19-8" data-line-number="8">status := checkTime(w, bookingTime, reminderDiff, loc)</a></code></pre></div>
+<p>Remember the how we defined <code>bookingTime</code> earlier to help populate our <code>ThisBooking</code> struct? We’re using it to:</p>
+<ul>
+<li><strong>Set a <code>reminderDiff</code> value</strong>: To subtract three hours from bookingTime, we need to set a variable of <code>time.Duration</code> type. Here, we set a duration of three hours using the <code>time.ParseDuration()</code> function and assign it to <code>reminderDiff</code>. We then pass <code>reminderDiff</code> into our <code>checkTime()</code> helper function.</li>
+<li><strong>Check if our three time and date criteria above</strong>: In <code>checkTime()</code>, we set up a switch statement that checks if <code>bookingTime</code> fulfils various conditions that makes the booked time and date invalid. If it meets any one of the conditions, then the switch statement returns a predefined string that we assign to the <code>status</code> variable, and can display as an error message in our <code>booking.gohtml</code> template. If it passes all the conditions, then we return the string <code>&quot;Success!&quot;</code>, which also gets assigned to the <code>status</code> variable.</li>
+</ul>
+<h2 id="checkpoint-what-bbscheduler-should-look-like-now">Checkpoint: What <code>bbScheduler()</code> should look like now</h2>
+<p>This is how your <code>bbScheduler</code> handler should look like now:</p>
+<div class="sourceCode" id="cb20"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb20-1" data-line-number="1"><span class="kw">func</span> bbScheduler(w http.ResponseWriter, r *http.Request) {</a>
+<a class="sourceLine" id="cb20-2" data-line-number="2">    <span class="kw">var</span> (</a>
+<a class="sourceLine" id="cb20-3" data-line-number="3">        loc          *time.Location</a>
+<a class="sourceLine" id="cb20-4" data-line-number="4">        reminderDiff time.Duration</a>
+<a class="sourceLine" id="cb20-5" data-line-number="5">        err          <span class="dt">error</span></a>
+<a class="sourceLine" id="cb20-6" data-line-number="6">    )</a>
+<a class="sourceLine" id="cb20-7" data-line-number="7"></a>
+<a class="sourceLine" id="cb20-8" data-line-number="8">    loc, err = time.LoadLocation(<span class="st">&quot;Europe/Amsterdam&quot;</span>)</a>
+<a class="sourceLine" id="cb20-9" data-line-number="9">    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb20-10" data-line-number="10">        log.Println(err)</a>
+<a class="sourceLine" id="cb20-11" data-line-number="11">    }</a>
+<a class="sourceLine" id="cb20-12" data-line-number="12"></a>
+<a class="sourceLine" id="cb20-13" data-line-number="13">    reminderDiff, err = time.ParseDuration(<span class="st">&quot;3h&quot;</span>)</a>
+<a class="sourceLine" id="cb20-14" data-line-number="14">    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb20-15" data-line-number="15">        log.Println(err)</a>
+<a class="sourceLine" id="cb20-16" data-line-number="16">    }</a>
+<a class="sourceLine" id="cb20-17" data-line-number="17"></a>
+<a class="sourceLine" id="cb20-18" data-line-number="18">    BookingEmpty := booking{</a>
+<a class="sourceLine" id="cb20-19" data-line-number="19">        MinDate: time.Now().In(loc).Format(<span class="st">&quot;2006-01-02&quot;</span>),</a>
+<a class="sourceLine" id="cb20-20" data-line-number="20">    }</a>
+<a class="sourceLine" id="cb20-21" data-line-number="21"></a>
+<a class="sourceLine" id="cb20-22" data-line-number="22">    <span class="kw">if</span> r.Method == <span class="st">&quot;POST&quot;</span> {</a>
+<a class="sourceLine" id="cb20-23" data-line-number="23">        r.ParseForm()</a>
+<a class="sourceLine" id="cb20-24" data-line-number="24"></a>
+<a class="sourceLine" id="cb20-25" data-line-number="25">        bookingTime, err := time.ParseInLocation(<span class="st">&quot;2006-01-02 15:04&quot;</span>, r.FormValue(<span class="st">&quot;date&quot;</span>)+<span class="st">&quot; &quot;</span>+r.FormValue(<span class="st">&quot;time&quot;</span>), loc)</a>
+<a class="sourceLine" id="cb20-26" data-line-number="26">        <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb20-27" data-line-number="27">            log.Println(err)</a>
+<a class="sourceLine" id="cb20-28" data-line-number="28">        }</a>
+<a class="sourceLine" id="cb20-29" data-line-number="29"></a>
+<a class="sourceLine" id="cb20-30" data-line-number="30">        reminderTime := bookingTime.Add(-reminderDiff)</a>
+<a class="sourceLine" id="cb20-31" data-line-number="31"></a>
+<a class="sourceLine" id="cb20-32" data-line-number="32">        ThisBooking := booking{</a>
+<a class="sourceLine" id="cb20-33" data-line-number="33">            Name:        r.FormValue(<span class="st">&quot;name&quot;</span>),</a>
+<a class="sourceLine" id="cb20-34" data-line-number="34">            Treatment:   r.FormValue(<span class="st">&quot;treatment&quot;</span>),</a>
+<a class="sourceLine" id="cb20-35" data-line-number="35">            Phone:       r.FormValue(<span class="st">&quot;phone&quot;</span>),</a>
+<a class="sourceLine" id="cb20-36" data-line-number="36">            BookingTime: &amp;bookingTime,</a>
+<a class="sourceLine" id="cb20-37" data-line-number="37">            MinDate:     time.Now().In(loc).Format(<span class="st">&quot;2006-01-02&quot;</span>),</a>
+<a class="sourceLine" id="cb20-38" data-line-number="38">        }</a>
+<a class="sourceLine" id="cb20-39" data-line-number="39"></a>
+<a class="sourceLine" id="cb20-40" data-line-number="40">        _, err = lookup.Read(client, r.FormValue(<span class="st">&quot;phone&quot;</span>), &amp;lookup.Params{CountryCode: <span class="st">&quot;NL&quot;</span>})</a>
+<a class="sourceLine" id="cb20-41" data-line-number="41">        <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb20-42" data-line-number="42">            RenderDefaultTemplate(w, <span class="st">&quot;views/booking.gohtml&quot;</span>, bookingContainer{ThisBooking, <span class="st">&quot;Please enter a valid phone number.&quot;</span>})</a>
+<a class="sourceLine" id="cb20-43" data-line-number="43">            <span class="kw">return</span></a>
+<a class="sourceLine" id="cb20-44" data-line-number="44">        }</a>
+<a class="sourceLine" id="cb20-45" data-line-number="45"></a>
+<a class="sourceLine" id="cb20-46" data-line-number="46">        status := checkTime(w, bookingTime, reminderDiff, loc)</a>
+<a class="sourceLine" id="cb20-47" data-line-number="47">        <span class="kw">if</span> status == <span class="st">&quot;Success!&quot;</span> {</a>
+<a class="sourceLine" id="cb20-48" data-line-number="48">            <span class="co">// =====</span></a>
+<a class="sourceLine" id="cb20-49" data-line-number="49">            <span class="co">// Display success state and actually schedule an SMS reminder.</span></a>
+<a class="sourceLine" id="cb20-50" data-line-number="50">            <span class="co">// =====</span></a>
+<a class="sourceLine" id="cb20-51" data-line-number="51">        } <span class="kw">else</span> <span class="kw">if</span> status != <span class="st">&quot;&quot;</span> {</a>
+<a class="sourceLine" id="cb20-52" data-line-number="52">            RenderDefaultTemplate(w, <span class="st">&quot;views/booking.gohtml&quot;</span>, bookingContainer{ThisBooking, status})</a>
+<a class="sourceLine" id="cb20-53" data-line-number="53">            <span class="kw">return</span></a>
+<a class="sourceLine" id="cb20-54" data-line-number="54">        }</a>
+<a class="sourceLine" id="cb20-55" data-line-number="55">    }</a>
+<a class="sourceLine" id="cb20-56" data-line-number="56">    RenderDefaultTemplate(w, <span class="st">&quot;views/booking.gohtml&quot;</span>, bookingContainer{BookingEmpty, <span class="st">&quot;&quot;</span>})</a>
+<a class="sourceLine" id="cb20-57" data-line-number="57">}</a></code></pre></div>
+<p>We’ve cleaned up the code a little by grouping some variable assignments, as well added a <code>BookingEmpty</code> struct to send an initial <code>MinDate</code> value to our template when the booking page first loads.</p>
+<p>We’ve also set up some logic to display the <code>status</code> returned by our <code>checkTime()</code> call for any other <code>status</code> than <code>&quot;Success!&quot;</code>. All that’s left to do is to write the code for our <code>&quot;Success!&quot;</code> state.</p>
+<h2 id="writing-the-success-state-and-scheduling-an-sms-reminder">Writing the success state and scheduling an SMS reminder</h2>
+<p>We’ll modify this block from the code in the above section:</p>
+<div class="sourceCode" id="cb21"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb21-1" data-line-number="1"><span class="kw">if</span> status == <span class="st">&quot;Success!&quot;</span> {</a>
+<a class="sourceLine" id="cb21-2" data-line-number="2">            <span class="co">// =====</span></a>
+<a class="sourceLine" id="cb21-3" data-line-number="3">            <span class="co">// Display success state and actually schedule an SMS reminder.</span></a>
+<a class="sourceLine" id="cb21-4" data-line-number="4">            <span class="co">// =====</span></a>
+<a class="sourceLine" id="cb21-5" data-line-number="5">}</a></code></pre></div>
+<p>First, we’ll write the messages that (1) we should display as a success state on our booking page, and (2) the message that we want to send our as a scheduled SMS reminder. To the top of the <code>if status == &quot;Success!&quot; {...}</code> block, add:</p>
+<div class="sourceCode" id="cb22"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb22-1" data-line-number="1">successStatus := <span class="st">&quot;Done! We&#39;ve set up an appointment for you at &quot;</span> + bookingTime.Format(<span class="st">&quot;Mon, 02 Jan 2006 3:04 PM&quot;</span>) +</a>
+<a class="sourceLine" id="cb22-2" data-line-number="2">    <span class="st">&quot; for &quot;</span> + r.FormValue(<span class="st">&quot;treatment&quot;</span>) + <span class="st">&quot;. We&#39;ll send a reminder to &quot;</span> + r.FormValue(<span class="st">&quot;phone&quot;</span>) + <span class="st">&quot; at &quot;</span> + reminderTime.Format(<span class="st">&quot;Mon, 02 Jan 2006 3:04 PM&quot;</span>) + <span class="st">&quot;. Thanks for using BeautyBird!&quot;</span></a>
+<a class="sourceLine" id="cb22-3" data-line-number="3">reminderMessage := <span class="st">&quot;Gentle reminder: you&#39;ve got an appointment with BeautyBird at &quot;</span> + bookingTime.Format(<span class="st">&quot;Mon, 02 Jan 2006 3:04 PM&quot;</span>) + <span class="st">&quot;. See you then!&quot;</span></a></code></pre></div>
+<p>Next, we finally get to schedule an SMS reminder.</p>
+<p>First, add the MessageBird SMS Message package to your <code>import</code> statement:</p>
+<div class="sourceCode" id="cb23"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb23-1" data-line-number="1"><span class="kw">import</span> (</a>
+<a class="sourceLine" id="cb23-2" data-line-number="2">    <span class="st">&quot;fmt&quot;</span></a>
+<a class="sourceLine" id="cb23-3" data-line-number="3">    <span class="st">&quot;html/template&quot;</span></a>
+<a class="sourceLine" id="cb23-4" data-line-number="4">    <span class="st">&quot;log&quot;</span></a>
+<a class="sourceLine" id="cb23-5" data-line-number="5">    <span class="st">&quot;net/http&quot;</span></a>
+<a class="sourceLine" id="cb23-6" data-line-number="6">    <span class="st">&quot;strings&quot;</span></a>
+<a class="sourceLine" id="cb23-7" data-line-number="7">    <span class="st">&quot;time&quot;</span></a>
+<a class="sourceLine" id="cb23-8" data-line-number="8"></a>
+<a class="sourceLine" id="cb23-9" data-line-number="9">    <span class="st">&quot;github.com/messagebird/go-rest-api&quot;</span></a>
+<a class="sourceLine" id="cb23-10" data-line-number="10">    <span class="st">&quot;github.com/messagebird/go-rest-api/lookup&quot;</span></a>
+<a class="sourceLine" id="cb23-11" data-line-number="11">    <span class="st">&quot;github.com/messagebird/go-rest-api/sms&quot;</span></a>
+<a class="sourceLine" id="cb23-12" data-line-number="12">)</a></code></pre></div>
+<p>Then, add the following code to the <code>if status == &quot;Sucess!&quot; { ...}</code> block:</p>
+<div class="sourceCode" id="cb24"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb24-1" data-line-number="1">msg, err := sms.Create(</a>
+<a class="sourceLine" id="cb24-2" data-line-number="2">    client,</a>
+<a class="sourceLine" id="cb24-3" data-line-number="3">    <span class="st">&quot;BeautyBird&quot;</span>,</a>
+<a class="sourceLine" id="cb24-4" data-line-number="4">    []<span class="dt">string</span>{r.FormValue(<span class="st">&quot;phone&quot;</span>)},</a>
+<a class="sourceLine" id="cb24-5" data-line-number="5">    reminderMessage,</a>
+<a class="sourceLine" id="cb24-6" data-line-number="6">    &amp;sms.Params{</a>
+<a class="sourceLine" id="cb24-7" data-line-number="7">        ScheduledDatetime: reminderTime,</a>
+<a class="sourceLine" id="cb24-8" data-line-number="8">    },</a>
+<a class="sourceLine" id="cb24-9" data-line-number="9">)</a>
+<a class="sourceLine" id="cb24-10" data-line-number="10"><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb24-11" data-line-number="11">    log.Println(err)</a>
+<a class="sourceLine" id="cb24-12" data-line-number="12">    RenderDefaultTemplate(w, <span class="st">&quot;views/booking.gohtml&quot;</span>, bookingContainer{ThisBooking, fmt.Sprintln(err) + <span class="st">&quot;. Please check your details and try again!&quot;</span>})</a>
+<a class="sourceLine" id="cb24-13" data-line-number="13">    <span class="kw">return</span></a>
+<a class="sourceLine" id="cb24-14" data-line-number="14">}</a>
+<a class="sourceLine" id="cb24-15" data-line-number="15">log.Println(msg)</a>
+<a class="sourceLine" id="cb24-16" data-line-number="16">RenderDefaultTemplate(w, <span class="st">&quot;views/booking.gohtml&quot;</span>, bookingContainer{ThisBooking, successStatus})</a>
+<a class="sourceLine" id="cb24-17" data-line-number="17"><span class="kw">return</span></a></code></pre></div>
+<p>Here, we call <code>sms.Create()</code> with the following parameters:</p>
+<ul>
+<li><code>client</code> is our client object.</li>
+<li><code>&quot;BeautyBird&quot;</code> as our “originator”.</li>
+<li><code>[]string{r.FormValue(&quot;phone&quot;)}</code> is a list of phone numbers, which we assign the phone number from our submitted form.</li>
+<li><code>reminderMessage</code> as the “body” of our message.</li>
+<li><code>&amp;sms.Params{...}</code> is a list of message parameters, of which we only define the <code>ScheduledDatetime</code> field value.</li>
+</ul>
+<p>If the call succceeds, we get a <code>*sms.Message</code> object that we save to the <code>msg</code> variable and log for development. (You can safely discard this object by replacing <code>msg</code> with <code>_</code> if you don’t need to log the <code>*sms.Message</code> object.) We then call <code>RenderDefaultTemplate</code> and pass in <code>successStatus</code> in our <code>bookingContainer</code> struct, and tell our application to skip the rest of <code>bbScheduler()</code>.</p>
+<p>If we encounter an error while creating a new message, we’ll log and display the error, and skip the rest of <code>bbScheduler()</code> with:</p>
+<div class="sourceCode" id="cb25"><pre class="sourceCode go"><code class="sourceCode go"><a class="sourceLine" id="cb25-1" data-line-number="1"><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a class="sourceLine" id="cb25-2" data-line-number="2">    log.Println(err)</a>
+<a class="sourceLine" id="cb25-3" data-line-number="3">    RenderDefaultTemplate(w, <span class="st">&quot;views/booking.gohtml&quot;</span>, bookingContainer{ThisBooking, fmt.Sprintln(err) + <span class="st">&quot;. Please check your details and try again!&quot;</span>})</a>
+<a class="sourceLine" id="cb25-4" data-line-number="4">    <span class="kw">return</span></a>
+<a class="sourceLine" id="cb25-5" data-line-number="5">}</a></code></pre></div>
+<h2 id="testing-the-application">Testing the Application</h2>
+<p>You’re done! To test your application, navigate to your project folder in the terminal and run:</p>
+<p><code>go run main.go</code></p>
+<p>Then, point your browser at http://localhost:8080/ to see the form and schedule your appointment! If you’ve used a live API key, a message will arrive to your phone three hours before the appointment! But don’t actually leave the house, this is just a demo :)</p>
+<h2 id="nice-work">Nice work!</h2>
+<p>You now have a running SMS appointment reminder application!</p>
+<p>You can now use the flow, code snippets and UI examples from this tutorial as an inspiration to build your own SMS reminder system. Don’t forget to download the code from the <a href="https://github.com/messagebirdguides/reminders-guide">MessageBird Developer Guides GitHub repository</a>.</p>
+<h2 id="next-steps">Next steps</h2>
+<p>Want to build something similar but not quite sure how to get started? Please feel free to let us know at support@messagebird.com, we’d love to help!</p>
